@@ -57,6 +57,7 @@ ggplot(qb, mapping = aes(x=HOF, y=TD))+
   geom_boxplot()
 
 ggplot(qb, mapping = aes(x=pass_yards, y= TD, color = HOF))+
-  geom_point()
+  geom_point()+
+  geom_smooth(method=lm, se=F)
 ```
 
