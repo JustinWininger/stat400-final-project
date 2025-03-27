@@ -1,0 +1,62 @@
+---
+title: "project"
+author: "Justin Wininger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+## Front Matter
+
+```{r}
+rm(list=ls())
+qb <- read.csv('qb.csv')
+test <- read.csv('NFL QB Stats.csv')
+
+test2 <- test %>% 
+  group_by(Player) %>%
+  summarise(
+    years_played = n(),
+    PY = sum(Pass.Yds)
+  )
+```
+
+# EDA
+
+```{r}
+get_major_decade <- function(start, end) {
+  decades <- seq(floor(start / 10) * 10, floor(end / 10) * 10, by = 10)
+  years_in_decade <- sapply(decades, function(d) min(end, d + 9) - max(start, d) + 1)
+  return(decades[which.max(years_in_decade)])
+}
+
+qb$Decade <- mapply(get_major_decade, qb$From, qb$To)
+
+qb$Decade <- paste0(qb$Decade, "s")
+
+qb$TD <- as.integer(qb$TD)
+qb$Decade <- as.factor(qb$Decade)
+```
+
+```{r}
+ggplot(qb, mapping = aes(x=Decade, y=pass_yards))+
+  geom_boxplot()
+
+ggplot(qb, mapping = aes(x=Decade, y=TD))+
+  geom_boxplot()
+
+ggplot(qb, mapping = aes(x=HOF, y=pass_yards))+
+  geom_boxplot()
+
+ggplot(qb, mapping = aes(x=HOF, y=TD))+
+  geom_boxplot()
+
+ggplot(qb, mapping = aes(x=pass_yards, y= TD, color = HOF))+
+  geom_point()
+```
+
