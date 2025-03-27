@@ -13,17 +13,106 @@ library(rattle)
 library(rpart)
 library(lubridate)
 library(kableExtra)
+library(readxl)
 ```
-
 
 ## Front Matter
 
 ```{r}
 rm(list=ls())
-qb_hof <- read.csv('qb.csv')
+qb_stats <- read.csv('NFL QB Stats.csv')
+allQB <- read_excel('allQBs.xlsx')
+```
 
+# Research Question
+
+Is it possible to use various career stats from a National Football League (NFL) quarterback (QB) to predict if he made the Pro Football Hall of Fame (HOF)?
+
+# Data
+
+```{r}
+qb <- qb_stats %>% 
+  group_by(Player) %>%
+  summarise(
+    seasons_played = n(),
+    pass_yards = sum(Pass.Yds),
+    Cmp = sum(Cmp),
+    Att = sum(Att),
+    `Cmp%` = round(((sum(Cmp) * 100) / sum(Att)), 1),
+    TD = sum(TD),
+    INT = sum(INT),
+    first_downs = sum(X1st),
+    twenty_plus = sum(`X20.`),
+    forty_plus = sum(`X40.`),
+    Lng = max(Lng),
+    Sck = sum(Sck),
+    Scky = sum(SckY)
+  )
+
+
+allQB <- allQB %>%
+  mutate(
+    HOF = ifelse(grepl("\\+$", Player), "Yes", "No"),
+    Player = gsub("\\+$", "", Player)
+  )
+
+allQB <- allQB[,-(2:3)]
+allQB <- allQB[,-(4)]
+
+qb_hof <- inner_join(allQB, qb, by=join_by(Player))
+
+qb_hof <- qb_hof %>% filter(To <  2016, From >= 1970, seasons_played >= 10, pass_yards > 25000, TD > 150)
+
+qb_hof <- qb_hof[,c(1,4,2,3,5:17)]
+
+qb_hof <- qb_hof %>% mutate(HOF_ind = ifelse(HOF == 'Yes', 1, 0))
+
+get_major_decade <- function(start, end) {
+  decades <- seq(floor(start / 10) * 10, floor(end / 10) * 10, by = 10)
+  years_in_decade <- sapply(decades, function(d) min(end, d + 9) - max(start, d) + 1)
+  return(decades[which.max(years_in_decade)])
+}
+
+qb_hof$Decade <- mapply(get_major_decade, qb_hof$From, qb_hof$To)
+
+qb_hof$Decade <- paste0(qb_hof$Decade, "s")
+
+qb_hof$TD <- as.integer(qb_hof$TD)
+qb_hof$Decade <- as.factor(qb_hof$Decade)
+```
+
+## Dataset Information
+
+Our main dataset, `qb_hof`, comes from the join between two datasets we found online. The first dataset, `qb_stats` was from kaggle, <https://www.kaggle.com/datasets/supremeleaf/nfl-qb-stats-1970-2022>. The second dataset, `allQB` is from Pro Football Reference, <https://www.pro-football-reference.com/players/qbindex.htm>. The response variable we will use is `HOF` or maybe `HOF_ind`, depending on if the encoding is necessary. It is a categorical binomial variable, with levels 'Yes' and 'No' (or 1 and 0). It represents if the player in question made the HOF or not. Our other variables include:
+
+| Variable | Explanation | Notes |
+|:----------------|:---------------------------|----------------------------|
+| `Player` | The player's name | Quantitative |
+| `From` | The player's first season | Quantitative |
+| `To` | The player's last season | Quantitative |
+| `seasons_played` | How many seasons the player played | Quantitative |
+| `pass_yards` | The player's career passing yards | Quantitative |
+| `Cmp` | The player's career completions | Quantitative |
+| `Att` | The player's career attempts | Quantitative |
+| `Cmp%` | The player's career completion percentage | Quantitative, completion percentage = (Cmp \* 100) / Att |
+| `TD` | The player's career passing touchdowns | Quantitative |
+| `INT` | The player's career interceptions | Quantitative |
+| `first_downs` | The player's career first downs | Quantitative |
+| `twenty_plus` | The player's career throws for over a twenty yard gain | Quantitative |
+| `forty_plus` | The player's career throws for over a forty yard gain | Quantitative |
+| `Lng` | The player's career longest play | Quantitative |
+| `Sck` | The number of times the player got sacked in their career | Quantitative |
+| `Scky` | The total yardage lost from sacks in the player's career | Quantitative |
+| `Decade` | The most common decade the player played in | Categorical, values: 1970s, 1980s, 1990s, 2000s |
+
+### Data Wrangling
+
+The `qb_stats` dataset had the statline from every QB for every season between 1970 and 2022. To get it into the format we have now, we had to do several steps of data-wrangling. First, we grouped by player and summed all of the per-season stats. Others, like `Lng`, could not simply be summed, so we took the max. Because the dataset only contains the seasons between 1970 and 2022, it would confuse the model to include players who started before 1970 or ended after 2022. A player like Johnny Unitas, for example, is a HOF QB, but he is not included because he started his career in 1955. The dataset does not have his statistics from before 1970, so including him in the model would not be helpful. Additionally, there are several players like Eli Manning whose last seasons are before 2022 and are very likely to be in the HOF soon, but are not yet. These people could also throw off the model, so we decided to use our knowledge of football to remove such players. The last QB to make the HOF, Peyton Manning, retired in 2015, so that is the upper bound we decided on. The original dataset does not contain any career or HOF information, so that is where the second dataset, `allQB`, comes in. It contains a list of all players, with a '+' by their name if they are in the HOF, and the years they played. We created the column `HOF` with a 'Yes' if the player had the '+', and a 'No' if he did not. We performed an inner join to join these datasets, making sure to remove the '+' first. Unfortunately, there were only 13 QBs who fit our criteria who made the HOF, so in an effort to have similar numbers of HOF and non-HOF players, we filtered the dataset more. To only get experienced, well-known names, we decided to arbitrarily only include players with more than 10 seasons played, more than 25,000 passing yards, and more than 150 passing touchdowns. Next, we encoded `HOF` into `HOF_ind`. We then wrote a function to determine the primary decade a player played in. Finally, the dataset was wrangled and ready to use.
+
+```{r}
 head(qb_hof)
 ```
+
 
 ```{r}
 qb_stats <- read.csv('NFL QB Stats.csv')
@@ -57,22 +146,10 @@ qb_eda <- qb_stats %>%
 head(qb_eda)
 ```
 
-
 # EDA
 
 ```{r}
-get_major_decade <- function(start, end) {
-  decades <- seq(floor(start / 10) * 10, floor(end / 10) * 10, by = 10)
-  years_in_decade <- sapply(decades, function(d) min(end, d + 9) - max(start, d) + 1)
-  return(decades[which.max(years_in_decade)])
-}
 
-qb_hof$Decade <- mapply(get_major_decade, qb_hof$From, qb_hof$To)
-
-qb_hof$Decade <- paste0(qb_hof$Decade, "s")
-
-qb_hof$TD <- as.integer(qb_hof$TD)
-qb_hof$Decade <- as.factor(qb_hof$Decade)
 ```
 
 ```{r}
@@ -315,5 +392,3 @@ ggplot(data=qb_eda, aes(x=attempts, y=completion_pct)) +
     axis.title.x = element_text(size = 12),
     axis.title.y = element_text(size = 12))
 ```
-
-
