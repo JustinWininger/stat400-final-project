@@ -8,6 +8,11 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(randomForest)
+library(rattle)
+library(rpart)
+library(lubridate)
+library(kableExtra)
 ```
 
 
@@ -15,16 +20,43 @@ library(tidyverse)
 
 ```{r}
 rm(list=ls())
-qb <- read.csv('qb.csv')
-test <- read.csv('NFL QB Stats.csv')
+qb_hof <- read.csv('qb.csv')
 
-test2 <- test %>% 
+head(qb_hof)
+```
+
+```{r}
+qb_stats <- read.csv('NFL QB Stats.csv')
+head(qb_stats)
+```
+
+```{r}
+qb_summary <- qb_stats %>% 
   group_by(Player) %>%
   summarise(
     years_played = n(),
-    PY = sum(Pass.Yds)
+    total_yards = sum(Pass.Yds)
   )
+
+head(qb_summary)
 ```
+
+```{r}
+qb_eda <- qb_stats %>%
+  group_by(Player) %>%
+  summarise(
+    yards_per_attempt = mean(Yds.Att),
+    attempts = sum(Att),
+    completions = sum(Cmp),
+    completion_pct = mean(Cmp..),
+    total_td = sum(TD),
+    total_int = sum(INT),
+    total_sacks = sum(Sck)
+  )
+
+head(qb_eda)
+```
+
 
 # EDA
 
@@ -35,29 +67,253 @@ get_major_decade <- function(start, end) {
   return(decades[which.max(years_in_decade)])
 }
 
-qb$Decade <- mapply(get_major_decade, qb$From, qb$To)
+qb_hof$Decade <- mapply(get_major_decade, qb_hof$From, qb_hof$To)
 
-qb$Decade <- paste0(qb$Decade, "s")
+qb_hof$Decade <- paste0(qb_hof$Decade, "s")
 
-qb$TD <- as.integer(qb$TD)
-qb$Decade <- as.factor(qb$Decade)
+qb_hof$TD <- as.integer(qb_hof$TD)
+qb_hof$Decade <- as.factor(qb_hof$Decade)
 ```
 
 ```{r}
-ggplot(qb, mapping = aes(x=Decade, y=pass_yards))+
+table1 <- qb_summary %>%
+  summarize(mean=mean(total_yards),
+            min=min(total_yards),
+            median=median(total_yards),
+            max=max(total_yards),
+            sd=sd(total_yards))
+
+table1 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Total Yards Passed",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table2 <- qb_summary %>%
+  summarize(mean=mean(years_played),
+            min=min(years_played),
+            median=median(years_played),
+            max=max(years_played),
+            sd=sd(years_played))
+
+table2 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Years Played",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table3 <- qb_eda %>%
+  summarize(mean=mean(yards_per_attempt),
+            min=min(yards_per_attempt),
+            median=median(yards_per_attempt),
+            max=max(yards_per_attempt),
+            sd=sd(yards_per_attempt))
+
+table3 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Yards per Attempt",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table4 <- qb_eda %>%
+  summarize(mean=mean(attempts),
+            min=min(attempts),
+            median=median(attempts),
+            max=max(attempts),
+            sd=sd(attempts))
+
+table4 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Pass Attempt",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table5 <- qb_eda %>%
+  summarize(mean=mean(completions),
+            min=min(completions),
+            median=median(completions),
+            max=max(completions),
+            sd=sd(completions))
+
+table5 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Pass Completions",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table6 <- qb_eda %>%
+  summarize(mean=mean(completion_pct),
+            min=min(completion_pct),
+            median=median(completion_pct),
+            max=max(completion_pct),
+            sd=sd(completion_pct))
+
+table6 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Pass Completion Percentage",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table7 <- qb_eda %>%
+  summarize(mean=mean(total_td),
+            min=min(total_td),
+            median=median(total_td),
+            max=max(total_td),
+            sd=sd(total_td))
+
+table7 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Total Touchdowns",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table8 <- qb_eda %>%
+  summarize(mean=mean(total_int),
+            min=min(total_int),
+            median=median(total_int),
+            max=max(total_int),
+            sd=sd(total_int))
+
+table8 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Total Interceptions",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+table9 <- qb_eda %>%
+  summarize(mean=mean(total_sacks),
+            min=min(total_sacks),
+            median=median(total_sacks),
+            max=max(total_sacks),
+            sd=sd(total_sacks))
+
+table9 %>%
+  kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Summary Table for Total Sacks",
+    col.names = c("Mean", "Minimum", "Median", "Maximum", "Standard Deviation"),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+```
+
+```{r}
+ggplot(qb_hof, mapping = aes(x=Decade, y=pass_yards))+
   geom_boxplot()
 
-ggplot(qb, mapping = aes(x=Decade, y=TD))+
+ggplot(qb_hof, mapping = aes(x=Decade, y=TD))+
   geom_boxplot()
 
-ggplot(qb, mapping = aes(x=HOF, y=pass_yards))+
+ggplot(qb_hof, mapping = aes(x=HOF, y=pass_yards))+
   geom_boxplot()
 
-ggplot(qb, mapping = aes(x=HOF, y=TD))+
+ggplot(qb_hof, mapping = aes(x=HOF, y=TD))+
   geom_boxplot()
 
-ggplot(qb, mapping = aes(x=pass_yards, y= TD, color = HOF))+
+ggplot(qb_hof, mapping = aes(x=pass_yards, y= TD, color = HOF))+
   geom_point()+
   geom_smooth(method=lm, se=F)
 ```
+
+```{r}
+ggplot(data=qb_eda, aes(x=total_int, y=total_td)) +
+  geom_point(color = "blue") +
+  geom_smooth(method=lm, se=FALSE, color = "red") +
+  labs(x = "Total Interceptions", 
+       y = "Total Touchdowns", 
+       title = "Total Touchdowns vs Total Interceptions") +
+  theme(
+    plot.title = element_text(size = 16L,
+                              face = "bold",
+                              hjust = 0.5),
+    plot.subtitle = element_text(size = 12L,
+                                 hjust = 0.5),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r}
+ggplot(data=qb_eda, aes(x=attempts, y=completion_pct)) +
+  geom_point(color = "blue") +
+  geom_smooth(method=lm, se=FALSE, color = "red") +
+  labs(x = "Pass Attempts", 
+       y = "Pass Completion Percentage", 
+       title = "Pass Completion Percentage vs Pass Attempts") +
+  theme(
+    plot.title = element_text(size = 16L,
+                              face = "bold",
+                              hjust = 0.5),
+    plot.subtitle = element_text(size = 12L,
+                                 hjust = 0.5),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12))
+```
+
 
