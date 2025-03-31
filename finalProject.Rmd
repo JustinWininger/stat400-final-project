@@ -21,7 +21,7 @@ library(readxl)
 ```{r}
 rm(list=ls())
 qb_stats <- read.csv('NFL QB Stats.csv')
-allQB <- read_excel('allQBs.xlsx')
+allQB <- read.csv('allQBs.csv')
 ```
 
 # Research Question
