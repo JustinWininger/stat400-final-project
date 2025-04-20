@@ -14,6 +14,9 @@ library(rpart)
 library(lubridate)
 library(kableExtra)
 library(readxl)
+library(car)
+library(caret)
+library(pROC)
 ```
 
 ## Front Matter
@@ -26,7 +29,7 @@ allQB <- read.csv('allQBs.csv')
 
 # Research Question
 
-Is it possible to use various career stats from a National Football League (NFL) quarterback (QB) to predict if he made the Pro Football Hall of Fame (HOF)?
+Is it possible to use various career stats from a National Football League (NFL) quarterback (QB) to predict if he made the Pro Football Hall of Fame (HOF)? What stats are the best for prediction?
 
 # Data
 
@@ -60,6 +63,7 @@ allQB <- allQB[,-(2:3)]
 allQB <- allQB[,-(4)]
 
 qb_hof <- inner_join(allQB, qb, by=join_by(Player))
+allqb_hof <- inner_join(allQB, qb, by=join_by(Player))
 
 qb_hof <- qb_hof %>% filter(To <  2016, From >= 1970, seasons_played >= 10, pass_yards > 25000, TD > 150)
 
@@ -79,6 +83,25 @@ qb_hof$Decade <- paste0(qb_hof$Decade, "s")
 
 qb_hof$TD <- as.integer(qb_hof$TD)
 qb_hof$Decade <- as.factor(qb_hof$Decade)
+
+allqb_hof <- allqb_hof %>% filter(To <  2016, From >= 1970)
+
+allqb_hof <- allqb_hof[,c(1,4,2,3,5:17)]
+
+allqb_hof <- allqb_hof %>% mutate(HOF_ind = ifelse(HOF == 'Yes', 1, 0))
+
+get_major_decade <- function(start, end) {
+  decades <- seq(floor(start / 10) * 10, floor(end / 10) * 10, by = 10)
+  years_in_decade <- sapply(decades, function(d) min(end, d + 9) - max(start, d) + 1)
+  return(decades[which.max(years_in_decade)])
+}
+
+allqb_hof$Decade <- mapply(get_major_decade, allqb_hof$From, allqb_hof$To)
+
+allqb_hof$Decade <- paste0(allqb_hof$Decade, "s")
+
+allqb_hof$TD <- as.integer(allqb_hof$TD)
+allqb_hof$Decade <- as.factor(allqb_hof$Decade)
 ```
 
 ## Dataset Information
@@ -147,10 +170,6 @@ head(qb_eda)
 ```
 
 # EDA
-
-```{r}
-
-```
 
 ```{r}
 table1 <- qb_summary %>%
@@ -343,20 +362,25 @@ table9 %>%
 
 ```{r}
 ggplot(qb_hof, mapping = aes(x=Decade, y=pass_yards))+
-  geom_boxplot()
+  geom_boxplot()+
+  labs(x='Decade Majority of Career Spent', y = "Career Passing Yards", title = 'Passing Yards by Decade')
 
 ggplot(qb_hof, mapping = aes(x=Decade, y=TD))+
-  geom_boxplot()
+  geom_boxplot()+
+  labs(x='Decade Majority of Career Spent', y = "Career Passing Touchdowns", title = 'Touchdowns by Decade')
 
 ggplot(qb_hof, mapping = aes(x=HOF, y=pass_yards))+
-  geom_boxplot()
+  geom_boxplot()+
+  labs(x='HOF Status', y = "Career Passing Yards", title = 'Passing Yards by HOF Status')
 
 ggplot(qb_hof, mapping = aes(x=HOF, y=TD))+
-  geom_boxplot()
+  geom_boxplot()+
+  labs(x='HOF Status', y = "Career Passing Touchdowns", title = 'Touchdowns by HOF Status')
 
 ggplot(qb_hof, mapping = aes(x=pass_yards, y= TD, color = HOF))+
   geom_point()+
-  geom_smooth(method=lm, se=F)
+  geom_smooth(method=lm, se=F)+
+  labs(x='Career Passing Yards', y = "Career Passing Touchdowns", legend =  'HOF Status', title = 'Touchdowns by Passing Yards by HOF Status')
 ```
 
 ```{r}
@@ -392,3 +416,105 @@ ggplot(data=qb_eda, aes(x=attempts, y=completion_pct)) +
     axis.title.x = element_text(size = 12),
     axis.title.y = element_text(size = 12))
 ```
+
+# GLM Fitting and Analysis
+
+```{r include = F}
+int_only_model <- glm(HOF_ind ~ 1, family = binomial, data = qb_hof)
+
+full_model <- glm(HOF_ind ~ seasons_played + pass_yards + Cmp + Att + TD + INT + first_downs + twenty_plus + forty_plus + Lng + Sck  + Decade, family = binomial, data = qb_hof)
+
+stats::step(object = full_model, 
+            scope = list(lower = int_only_model, upper = full_model),
+            data = qb_hof,
+            direction = "backward")
+
+full_model2 <- glm(HOF_ind ~ pass_yards + TD + INT + first_downs + Sck + seasons_played, family = binomial, data = qb_hof)
+
+stats::step(object = full_model2, 
+            scope = list(lower = int_only_model, upper = full_model2),
+            data = qb_hof,
+            direction = "backward")
+```
+
+```{r include = F}
+logmodel <- glm(HOF_ind ~ TD + first_downs + seasons_played, family = binomial, data = qb_hof)
+
+summary(logmodel)
+```
+```{r}
+anova(logmodel, full_model2)
+# confirms backwards selection
+```
+```{r message = F}
+pred_prob <- predict(logmodel, newdata = qb_hof, type = "response")
+
+qb_hof <-
+  qb_hof %>%
+  mutate(predProbaility = pred_prob)
+  
+#Generate predicted values of y (call them pred_surv)
+threshold  <- 0.5
+pred_HOF <- ifelse(pred_prob > threshold, "Yes", "No")
+
+#Add predictions to dataset
+qb_hof <- 
+  qb_hof %>%
+  mutate(Prediction = pred_HOF)
+
+qb_hof %>%
+  mutate(PredictedProb = pred_prob,
+         PredictedHOF = pred_HOF) %>%
+  group_by(HOF, PredictedHOF) %>%
+  summarize(n = n()) %>%
+  spread(HOF, n) 
+# accuracy = 0.875
+#Sensitivity : 0.9259
+#Specificity : 0.7692 
+
+test_roc = roc(response = qb_hof$HOF,
+               predictor = pred_prob, 
+               plot = TRUE, print.auc = TRUE, 
+               legacy.axes=TRUE)
+```
+
+```{r message = F}
+logmodel2 <- glm(HOF_ind ~ TD + first_downs + seasons_played, family = binomial, data = allqb_hof)
+
+summary(logmodel2)
+
+pred_prob2 <- predict(logmodel, newdata = allqb_hof, type = "response")
+
+allqb_hof <-
+  allqb_hof %>%
+  mutate(predProbaility2 = pred_prob2)
+  
+#Generate predicted values of y (call them pred_surv)
+threshold  <- 0.5
+pred_HOF2 <- ifelse(pred_prob2 > threshold, "Yes", "No")
+
+#Add predictions to dataset
+allqb_hof <- 
+  allqb_hof %>%
+  mutate(Prediction2 = pred_HOF2)
+
+allqb_hof %>%
+  mutate(PredictedProb2 = pred_prob2,
+         PredictedHOF2 = pred_HOF2) %>%
+  group_by(HOF, PredictedHOF2) %>%
+  summarize(n = n()) %>%
+  spread(HOF, n) 
+
+# generalizing to new data, accuracy of 0.9852
+#Sensitivity : 0.9923         
+#Specificity : 0.7692 
+
+test_roc = roc(response = allqb_hof$HOF,
+               predictor = pred_prob2, 
+               plot = TRUE, print.auc = TRUE, 
+               legacy.axes=TRUE)
+```
+```{r}
+ predictedHOFQBs <- allqb_hof %>% filter(Prediction2 =='Yes', HOF == 'No')
+```
+
