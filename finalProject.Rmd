@@ -25,13 +25,21 @@ library(pROC)
 rm(list=ls())
 qb_stats <- read.csv('NFL QB Stats.csv')
 allQB <- read.csv('allQBs.csv')
+qb_summary <- qb_stats %>%
+group_by(Player) %>%
+summarise(
+years_played = n(),
+total_yards = sum(Pass.Yds)
+)
 ```
 
-# Research Question
+# Chapter 1: GLM
+
+## 1.1 Research Question
 
 Is it possible to use various career stats from a National Football League (NFL) quarterback (QB) to predict if he made the Pro Football Hall of Fame (HOF)? What stats are the best for prediction?
 
-# Data
+## 1.2 Data
 
 ```{r}
 qb <- qb_stats %>% 
@@ -64,6 +72,8 @@ allQB <- allQB[,-(4)]
 
 qb_hof <- inner_join(allQB, qb, by=join_by(Player))
 allqb_hof <- inner_join(allQB, qb, by=join_by(Player))
+
+allqb_hof2<- inner_join(allQB, qb, by=join_by(Player))
 
 qb_hof <- qb_hof %>% filter(To <  2016, From >= 1970, seasons_played >= 10, pass_yards > 25000, TD > 150)
 
@@ -102,9 +112,11 @@ allqb_hof$Decade <- paste0(allqb_hof$Decade, "s")
 
 allqb_hof$TD <- as.integer(allqb_hof$TD)
 allqb_hof$Decade <- as.factor(allqb_hof$Decade)
+
+allqb_hof2 <- allqb_hof %>% filter(allqb_hof$Decade != '2010s')
 ```
 
-## Dataset Information
+### 1.2.1 Dataset Information
 
 Our main dataset, `qb_hof`, comes from the join between two datasets we found online. The first dataset, `qb_stats` was from kaggle, <https://www.kaggle.com/datasets/supremeleaf/nfl-qb-stats-1970-2022>. The second dataset, `allQB` is from Pro Football Reference, <https://www.pro-football-reference.com/players/qbindex.htm>. The response variable we will use is `HOF` or maybe `HOF_ind`, depending on if the encoding is necessary. It is a categorical binomial variable, with levels 'Yes' and 'No' (or 1 and 0). It represents if the player in question made the HOF or not. Our other variables include:
 
@@ -128,30 +140,15 @@ Our main dataset, `qb_hof`, comes from the join between two datasets we found on
 | `Scky` | The total yardage lost from sacks in the player's career | Quantitative |
 | `Decade` | The most common decade the player played in | Categorical, values: 1970s, 1980s, 1990s, 2000s |
 
-### Data Wrangling
+### 1.2.2 Data Wrangling
 
 The `qb_stats` dataset had the statline from every QB for every season between 1970 and 2022. To get it into the format we have now, we had to do several steps of data-wrangling. First, we grouped by player and summed all of the per-season stats. Others, like `Lng`, could not simply be summed, so we took the max. Because the dataset only contains the seasons between 1970 and 2022, it would confuse the model to include players who started before 1970 or ended after 2022. A player like Johnny Unitas, for example, is a HOF QB, but he is not included because he started his career in 1955. The dataset does not have his statistics from before 1970, so including him in the model would not be helpful. Additionally, there are several players like Eli Manning whose last seasons are before 2022 and are very likely to be in the HOF soon, but are not yet. These people could also throw off the model, so we decided to use our knowledge of football to remove such players. The last QB to make the HOF, Peyton Manning, retired in 2015, so that is the upper bound we decided on. The original dataset does not contain any career or HOF information, so that is where the second dataset, `allQB`, comes in. It contains a list of all players, with a '+' by their name if they are in the HOF, and the years they played. We created the column `HOF` with a 'Yes' if the player had the '+', and a 'No' if he did not. We performed an inner join to join these datasets, making sure to remove the '+' first. Unfortunately, there were only 13 QBs who fit our criteria who made the HOF, so in an effort to have similar numbers of HOF and non-HOF players, we filtered the dataset more. To only get experienced, well-known names, we decided to arbitrarily only include players with more than 10 seasons played, more than 25,000 passing yards, and more than 150 passing touchdowns. Next, we encoded `HOF` into `HOF_ind`. We then wrote a function to determine the primary decade a player played in. Finally, the dataset was wrangled and ready to use.
 
+Below are several glimpses into the datatsets. They serve to help us identify underlying patterns in the data. 
 ```{r}
 head(qb_hof)
 ```
 
-
-```{r}
-qb_stats <- read.csv('NFL QB Stats.csv')
-head(qb_stats)
-```
-
-```{r}
-qb_summary <- qb_stats %>% 
-  group_by(Player) %>%
-  summarise(
-    years_played = n(),
-    total_yards = sum(Pass.Yds)
-  )
-
-head(qb_summary)
-```
 
 ```{r}
 qb_eda <- qb_stats %>%
@@ -169,7 +166,13 @@ qb_eda <- qb_stats %>%
 head(qb_eda)
 ```
 
-# EDA
+### 1.2.3 Possible Problems
+
+Our dataset is very thorough, but it is not perfect. A large predictor of whether or not a player will make the HOF are his career awards. The NFL gives out several awards yearly, like the Most Valuable Player (MVP), Offensive Player of the Year (OPOY), and many others. These are very prestigious awards, and winning one goes a long way to making the HOF. Our dataset does not include these awards. Additionally, the dataset does not include championships like winning a Super Bowl, the NFL championship. The number of super bowl wins is often cited when discussing whether a player should make the HOF or not. 
+
+## 1.3 EDA
+
+Exploratory Data Analysis is a crucial step in any statistics project. It is necessary to observe the patterns and decide whether our chosen GLM fits the  conditions and makes sense. Below are several summary tables for some chosen variables that might be interesting. 
 
 ```{r}
 table1 <- qb_summary %>%
@@ -360,6 +363,10 @@ table9 %>%
                             latex_options = c("scale_down", "HOLD_position"))
 ```
 
+These summary tables show that many of these variables have very large standard deviations. This must be something to look out for in our regression.
+
+Below are several different side-by-side boxplots that attempt to show some relationships of what we believe to be the two most important stats, passing yards and touchdowns. Both are shown by decade played and by HOF Status. Additionally, they are shown together in a scatterplot. 
+
 ```{r}
 ggplot(qb_hof, mapping = aes(x=Decade, y=pass_yards))+
   geom_boxplot()+
@@ -383,6 +390,11 @@ ggplot(qb_hof, mapping = aes(x=pass_yards, y= TD, color = HOF))+
   labs(x='Career Passing Yards', y = "Career Passing Touchdowns", legend =  'HOF Status', title = 'Touchdowns by Passing Yards by HOF Status')
 ```
 
+For both variables, there seems to be almost a parabolic trend. They rise as time increases, but then decrease from the 1990s to the 2000s. We expected the rise, but did not expect the decrease at all. As the NFL has evolved, it has become much more of a passing league. These data do not support that claim, though, which is very interesting. What is not surprising at all, however, is the fact that passing yards and touchdowns for players in the HOF appear to be significantly larger than players who are not. This makes complete sense, as players in the HOF likely had more yards and touchdowns in their careers. The scatterplot reveals that players in the HOF have more touchdowns per passing yard than people not in the HOF. This is seen in the fact that players in the HOF have a steeper slope than players in not in the HOF. A steeper slope, by definition, means that Y increases more as X increases by one. Because yards is on the X axis and TDs are on the Y axis, they therefore have more touchdowns per passing yard. This relationship also makes sense. Passing yards are very important, but one cannot win a game with yards alone. The team that wins the game is the team with more points, not the team with more yards. Touchdowns score points, so it is beneficial for a QB to have more touchdowns per yard.
+
+
+Below are two scatterplots that show the relationships between interceptions and touchdowns, and between attempts and completion percentage. 
+
 ```{r}
 ggplot(data=qb_eda, aes(x=total_int, y=total_td)) +
   geom_point(color = "blue") +
@@ -398,9 +410,7 @@ ggplot(data=qb_eda, aes(x=total_int, y=total_td)) +
                                  hjust = 0.5),
     axis.title.x = element_text(size = 12),
     axis.title.y = element_text(size = 12))
-```
 
-```{r}
 ggplot(data=qb_eda, aes(x=attempts, y=completion_pct)) +
   geom_point(color = "blue") +
   geom_smooth(method=lm, se=FALSE, color = "red") +
@@ -416,81 +426,164 @@ ggplot(data=qb_eda, aes(x=attempts, y=completion_pct)) +
     axis.title.x = element_text(size = 12),
     axis.title.y = element_text(size = 12))
 ```
+Both scatterplots show a positive, linear trend. The first shows that as interceptions increase, so do touchdowns. This relationship makes perfect sense. Both interceptions and touchdowns are a result of throwing the ball. It stands to reason that as one throws the ball more, both interceptions and touchdowns would increase. The second scatterplot shows that as pass attempts increase, so does completion percentage. Completion percentage is defined as $\frac{Cmp}{Att} \times 100$. Attempts are in the denominator of that equation, so as they increase, one might expect completion percentage to decrease. The real reason for this increase is likely due to the fact that only the really skilled QBs have that many attempts in the first place, and the more skilled they are the more attempts they tend to have. So, the QBs with the most skill have the most attempts, and because they are so skilled, they also have a very good completion percentage.
 
-# GLM Fitting and Analysis
 
+## 1.4 Fitting and Analysis
+
+The GLM our group chose is logistic regression. Logistic regression is unlike other types of regression because it requires a categorical variable as its response. Logistic regression estimates the probability of an event occurring. We observed linearity in our EDA, all values are independent from another, and the sample size is large enough. All conditions for logistic regression are met except for multicollinearity. Many of the terms are multicollinear, we will have to proceed with caution.
+
+To select which variables are best for prediction, we will use backwards selection. Backwards selection starts with the full model with all predictors, and systematically removes the predictor that leads to the largest reduction in AIC until removing a term no longer significantly reduces AIC.
 ```{r include = F}
 int_only_model <- glm(HOF_ind ~ 1, family = binomial, data = qb_hof)
 
-full_model <- glm(HOF_ind ~ seasons_played + pass_yards + Cmp + Att + TD + INT + first_downs + twenty_plus + forty_plus + Lng + Sck  + Decade, family = binomial, data = qb_hof)
+full_model <- glm(HOF_ind ~ pass_yards + TD + INT + first_downs + Sck + seasons_played + Decade, family = binomial, data = qb_hof)
 
 stats::step(object = full_model, 
             scope = list(lower = int_only_model, upper = full_model),
             data = qb_hof,
             direction = "backward")
-
-full_model2 <- glm(HOF_ind ~ pass_yards + TD + INT + first_downs + Sck + seasons_played, family = binomial, data = qb_hof)
-
-stats::step(object = full_model2, 
-            scope = list(lower = int_only_model, upper = full_model2),
-            data = qb_hof,
-            direction = "backward")
 ```
 
-```{r include = F}
-logmodel <- glm(HOF_ind ~ TD + first_downs + seasons_played, family = binomial, data = qb_hof)
+The backwards selection chose a model with only three terms, `TD`, `first_downs`, and `seasons_played`. This was very surprising to our group. We expected terms like yards or interceptions to be included, and did not expect first downs or seasons played to be included. Our previous knowledge as football fans led us to believe that other terms would be important. We were also surprised not to see the decade term included, as there seemed to be a relationship with decade seen in our EDA. We decided to proceed with two models, one with decade and one without it. 
+
+Below are the summaries of the two models. 
+
+```{r include = T}
+logmodel <- glm(HOF_ind ~ TD + first_downs + seasons_played + Decade, family = binomial, data = qb_hof)
 
 summary(logmodel)
+
+logmodelNoD <- glm(HOF_ind ~ TD + first_downs + seasons_played, family = binomial, data = qb_hof)
+
+summary(logmodelNoD)
 ```
+The decade term is very insignificant, with p-values around or above 0.3. Additionally, the first downs term is very insignificant in the model with decade. It is still insignificant in the model without decade at a 0.05 level, but it is still much lower. These models very surprising to us because many of the coefficient terms are negative. First downs and seasons played are negative, meaning an increase in either decreases a player's probability to make the HOF. Additionally, all decade terms are negative, meaning that players in the 1970s had the highest probability to make the HOF. Perhaps the HOF has gotten more selective over time. The most logical explanation for this is that the standards were simply lower back then. As the league has evolved, passing has become much more frequent. Because of this, better stats in the more recent decades are less impressive, relative to their peers. 
+
+To confirm the backwards selection, a drop-in-deviance test was conducted. The hypotheses are as follows:
+$$ 
+\begin{align}
+H_0 &: \text{The reduced model is preferred.} \\
+H_A &: \text{The full model is preferred.}
+\end{align}
+$$
 ```{r}
-anova(logmodel, full_model2)
+anova(logmodel, full_model)
 # confirms backwards selection
+
+anova(logmodelNoD, full_model)
 ```
-```{r message = F}
+Because both p-values are insignificant at a 0.05 level, we fail to reject our null hypothesis and conclude that the reduced model is preferred over the full model. This confirms our backwards selection. 
+
+We want to test if decade really is an important predictor. We will perform another drop-in-deviance test to see which model is preferred. This test uses the same hypotheses as before.
+
+```{r}
+anova(logmodelNoD, logmodel)
+```
+This test returns a p-value of 0.656, which is very insignificant. We fail to reject our null hypothesis and conclude that the reduced model without decade is preferred. Based on the backwards selection and drop-in-deviance test, we will remove decade from our model, despite the fact that some of our EDA indicated it might be important. 
+
+To see how well our model can predict, we want to generalize it to new data. But before that, just as a baseline, we want to test it on the training data first. 
+```{r decade, message = F, include = T}
 pred_prob <- predict(logmodel, newdata = qb_hof, type = "response")
 
 qb_hof <-
   qb_hof %>%
   mutate(predProbaility = pred_prob)
-  
+
 #Generate predicted values of y (call them pred_surv)
-threshold  <- 0.5
+threshold  <- 0.6
 pred_HOF <- ifelse(pred_prob > threshold, "Yes", "No")
 
 #Add predictions to dataset
-qb_hof <- 
+qb_hof <-
   qb_hof %>%
   mutate(Prediction = pred_HOF)
 
-qb_hof %>%
+confmat <- qb_hof %>%
   mutate(PredictedProb = pred_prob,
          PredictedHOF = pred_HOF) %>%
   group_by(HOF, PredictedHOF) %>%
   summarize(n = n()) %>%
-  spread(HOF, n) 
-# accuracy = 0.875
-#Sensitivity : 0.9259
-#Specificity : 0.7692 
+  spread(HOF, n)
 
 test_roc = roc(response = qb_hof$HOF,
-               predictor = pred_prob, 
-               plot = TRUE, print.auc = TRUE, 
+               predictor = pred_prob,
+               plot = TRUE, print.auc = TRUE,
                legacy.axes=TRUE)
+
+confmat %>% kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Confusion Matrix",
+    col.names = c('Predicted', 'Actual No', 'Actual Yes'),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+
+#Accuracy = 0.875
+#Sensitivity = 0.6923
+#Specificity = 0.9630
 ```
 
-```{r message = F}
-logmodel2 <- glm(HOF_ind ~ TD + first_downs + seasons_played, family = binomial, data = allqb_hof)
+```{r warning = F, message = F}
+pred_probNoD <- predict(logmodelNoD, newdata = qb_hof, type = "response")
 
-summary(logmodel2)
+qb_hof <-
+  qb_hof %>%
+  mutate(predProbaility = pred_probNoD)
+  
+#Generate predicted values of y (call them pred_surv)
+threshold  <- 0.6
+pred_HOFNoD <- ifelse(pred_probNoD > threshold, "Yes", "No")
 
-pred_prob2 <- predict(logmodel, newdata = allqb_hof, type = "response")
+#Add predictions to dataset
+qb_hof <- 
+  qb_hof %>%
+  mutate(PredictionNoD = pred_HOFNoD)
+
+confmatNoD <- qb_hof %>%
+  mutate(PredictedProb = pred_probNoD,
+         PredictedHOF = pred_HOFNoD) %>%
+  group_by(HOF, PredictedHOF) %>%
+  summarize(n = n()) %>%
+  spread(HOF, n) 
+
+test_roc = roc(response = qb_hof$HOF,
+               predictor = pred_probNoD, 
+               plot = TRUE, print.auc = TRUE, 
+               legacy.axes=TRUE)
+
+confmatNoD %>% kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Confusion Matrix no Decade",
+    col.names = c('Predicted', 'Actual No', 'Actual Yes'),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+
+#Accuracy = 0.9000
+#Sensitivity : 0.7692
+#Specificity : 0.9630
+```
+Based on a threshold of 0.6, the resulting AUC is 0.923 and the confusion matrix has an accuracy of 0.9, a sensitivity of 0.7692, and a specificity of 0.9630. The sensitivity or true positive rate is low, but that is likely due to the fact that we simply do not have very many positives in total. Now we are free to generalize to new data. While not included, it is interesting to note that the model with decade has a lower accuracy and sensitivity. 
+
+## 1.5 Generalizing to New Data 
+
+To test the effectiveness of the model, it needs to be tested on data it has not seen before. We will now test the model on the unfiltered dataset, with every QB who played between 1970 and 2016. 
+```{r message = F, warning = F}
+pred_prob2 <- predict(logmodelNoD, newdata = allqb_hof, type = "response")
 
 allqb_hof <-
   allqb_hof %>%
   mutate(predProbaility2 = pred_prob2)
   
 #Generate predicted values of y (call them pred_surv)
-threshold  <- 0.5
+threshold  <- 0.6
 pred_HOF2 <- ifelse(pred_prob2 > threshold, "Yes", "No")
 
 #Add predictions to dataset
@@ -498,23 +591,69 @@ allqb_hof <-
   allqb_hof %>%
   mutate(Prediction2 = pred_HOF2)
 
-allqb_hof %>%
+confmat2 <- allqb_hof %>%
   mutate(PredictedProb2 = pred_prob2,
          PredictedHOF2 = pred_HOF2) %>%
   group_by(HOF, PredictedHOF2) %>%
   summarize(n = n()) %>%
   spread(HOF, n) 
 
-# generalizing to new data, accuracy of 0.9852
-#Sensitivity : 0.9923         
-#Specificity : 0.7692 
-
 test_roc = roc(response = allqb_hof$HOF,
                predictor = pred_prob2, 
                plot = TRUE, print.auc = TRUE, 
                legacy.axes=TRUE)
+
+confmat2 %>% kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Confusion Matrix",
+    col.names = c('Predicted', 'Actual No', 'Actual Yes'),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+
+#accuracy : 0.9877
+#Sensitivity : 0.7692    
+#Specificity : 0.9949  
+
+FN <- allqb_hof %>% filter(Prediction2 == 'No', HOF == 'Yes')
+FP <- allqb_hof %>% filter(Prediction2 == 'Yes', HOF == 'No')
 ```
-```{r}
- predictedHOFQBs <- allqb_hof %>% filter(Prediction2 =='Yes', HOF == 'No')
+Unfortunately, the sensitivity is still relatively low at 0.7692, which is still due to there being very few players in the HOF in the datatset. A possible reason for the low sensitivity is the fact that our model does not include awards or championships. For example, players like Steve Young or Troy Aikman do not have very impressive stats, but both have 3 or more super bowl victories. These players are false negatives. Accuracy and specificity, 0.9877 and 0.9949 respecively, both increased. Our model is very good at predicting true negatives, likely because the dataset has many negatives in it. The AUC is 0.947, which when combined with the matrix, make our model very generalizable to new data. 
+
+### 1.5.1 Machine Learning
+
+We want to perform machine learning to further test the model. We decided to use the random random forest algorithm. Random forest uses decision trees to make predictions.
+```{r warning = F, message = F}
+set.seed(123)
+rfModel <- randomForest(HOF_ind ~ TD + first_downs + seasons_played, data = qb_hof, ntree = 500, mtry = 2)
+
+rfProb <- predict(rfModel, newdata = allqb_hof, type = "response")
+rfPred <- ifelse(rfProb > .6 , "Yes", "No")
+
+test_roc = roc(response = allqb_hof$HOF,
+               predictor = rfProb, 
+               plot = TRUE, print.auc = TRUE, 
+               legacy.axes=TRUE)
+
+confmatRF <- table(rfPred, allqb_hof$HOF)
+
+confmatRF %>% kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    caption = "Confusion Matrix Random Forest",
+    col.names = c('Predicted', 'Actual No', 'Actual Yes'),
+    align = c("l", rep("c", 2)),
+    booktabs = TRUE
+  ) %>%
+  kableExtra::kable_classic(lightable_options = "striped",
+                            latex_options = c("scale_down", "HOLD_position"))
+
+#accuracy : 0.9901
+#Sensitivity : 0.9231   
+#Specificity : 0.9923  
 ```
+At a threshold of 0.6, our random forest had an AUC of 0.931, an accuracy of 0.9901, a sensitivity of 0.9231, and a specificity of 0.9923. The random forest model is very good at making predictions, based on our observed confusion matrix. This is further proof that our model can be generalized very well to new data.
 
