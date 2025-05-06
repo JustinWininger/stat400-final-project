@@ -483,7 +483,7 @@ anova(logmodelNoD, logmodel)
 This test returns a p-value of 0.656, which is very insignificant. We fail to reject our null hypothesis and conclude that the reduced model without decade is preferred. Based on the backwards selection and drop-in-deviance test, we will remove decade from our model, despite the fact that some of our EDA indicated it might be important. 
 
 To see how well our model can predict, we want to generalize it to new data. But before that, just as a baseline, we want to test it on the training data first. 
-```{r decade, message = F, include = T}
+```{r decade, message = F, include = F}
 pred_prob <- predict(logmodel, newdata = qb_hof, type = "response")
 
 qb_hof <-
@@ -657,3 +657,6 @@ confmatRF %>% kable(
 ```
 At a threshold of 0.6, our random forest had an AUC of 0.931, an accuracy of 0.9901, a sensitivity of 0.9231, and a specificity of 0.9923. The random forest model is very good at making predictions, based on our observed confusion matrix. This is further proof that our model can be generalized very well to new data.
 
+## 1.6 GLM Conclusion
+
+We are satisfied with the overall performance of our model, seen by an accuracy of 99% using the random forest algorithm. Additionally, the area under the curve (AUC) exceeds 0.9, indicating excellent and reliable model performance. In the future, we could incorporate predictors that account for winning percentage in both the regular season and postseason. Contextually, success at the highest level, especially for quarterbacks, is a key factor in determining if a player makes the hall of fame.
