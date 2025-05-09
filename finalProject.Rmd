@@ -17,6 +17,7 @@ library(readxl)
 library(car)
 library(caret)
 library(pROC)
+library(lme4)
 ```
 
 ## Front Matter
@@ -660,3 +661,104 @@ At a threshold of 0.6, our random forest had an AUC of 0.931, an accuracy of 0.9
 ## 1.6 GLM Conclusion
 
 We are satisfied with the overall performance of our model, seen by an accuracy of 99% using the random forest algorithm. Additionally, the area under the curve (AUC) exceeds 0.9, indicating excellent and reliable model performance. In the future, we could incorporate predictors that account for winning percentage in both the regular season and postseason. Contextually, success at the highest level, especially for quarterbacks, is a key factor in determining if a player makes the hall of fame.
+
+# Chapter 2: MLM
+
+```{r}
+qb_hof <- qb_hof %>%
+  mutate(Decade = as.factor(Decade))  # Decade as group for random effects
+```
+
+```{r}
+# --- 2. Null (Unconditional Means) Model ---
+mlm_model_null <- glmer(HOF_ind ~ 1 + (1 | Decade),
+                    data = qb_hof,
+                    family = binomial(link = "logit"))
+
+# Calculate ICC
+var_decade <- as.numeric(VarCorr(mlm_model_null)$Decade[1])
+icc <- var_decade / (var_decade + (pi^2 / 3))
+cat("ICC:", round(icc, 3), "\n")
+```
+
+```{r}
+# --- 3. Random Intercepts Model ---
+mlm_model1 <- glmer(HOF_ind ~ TD + first_downs + seasons_played + (1 | Decade),
+                data = qb_hof,
+                family = binomial(link = "logit"),
+                control = glmerControl(optimizer = "bobyqa"))
+
+summary(mlm_model1)
+```
+
+```{r}
+# --- 4. Random Slopes Model ---
+mlm_model2 <- glmer(HOF_ind ~ TD + first_downs + seasons_played + (TD | Decade),
+                data = qb_hof,
+                family = binomial(link = "logit"),
+                control = glmerControl(optimizer = "bobyqa"))
+
+summary(mlm_model2)
+```
+
+```{r}
+# Compare random intercept vs random slope
+anova(mlm_model1, mlm_model2)
+```
+
+```{r}
+# --- 5. Predictive Evaluation on Training Data ---
+threshold <- 0.6
+
+# Predict probabilities
+qb_hof$pred_prob <- predict(mlm_model1, type = "response")
+qb_hof$Prediction <- ifelse(qb_hof$pred_prob > threshold, "Yes", "No")
+
+# Confusion Matrix
+mlm_confmat <- qb_hof %>%
+  mutate(Predicted = Prediction) %>%
+  group_by(HOF, Predicted) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = HOF, values_from = n)
+
+confmat %>%
+  kable(caption = "Confusion Matrix (Training)",
+        col.names = c("Predicted", "Actual No", "Actual Yes"),
+        align = c("l", "c", "c"),
+        booktabs = TRUE) %>%
+  kable_classic("striped", latex_options = "scale_down")
+
+# ROC and AUC
+roc_curve <- roc(response = qb_hof$HOF,
+                 predictor = qb_hof$pred_prob,
+                 plot = TRUE,
+                 print.auc = TRUE,
+                 legacy.axes = TRUE)
+```
+
+```{r}
+# --- 6. Predictive Generalization to All QBs ---
+allqb_hof$pred_prob <- predict(mlm_model1, newdata = allqb_hof, type = "response", allow.new.levels = TRUE)
+allqb_hof$Prediction <- ifelse(allqb_hof$pred_prob > threshold, "Yes", "No")
+
+# Confusion Matrix on Generalization Data
+confmat_all <- allqb_hof %>%
+  mutate(Predicted = Prediction) %>%
+  group_by(HOF, Predicted) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = HOF, values_from = n)
+
+confmat_all %>%
+  kable(caption = "Confusion Matrix (Generalization)",
+        col.names = c("Predicted", "Actual No", "Actual Yes"),
+        align = c("l", "c", "c"),
+        booktabs = TRUE) %>%
+  kable_classic("striped", latex_options = "scale_down")
+
+# ROC and AUC for Generalization
+roc_curve_all <- roc(response = allqb_hof$HOF,
+                     predictor = allqb_hof$pred_prob,
+                     plot = TRUE,
+                     print.auc = TRUE,
+                     legacy.axes = TRUE)
+```
